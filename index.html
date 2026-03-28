@@ -15,9 +15,27 @@
       background: #f5f0eb;
       min-height: 100vh;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
+      gap: 40px;
+      padding: 32px 24px;
+    }
+
+    /* ── Canvas ── */
+    #shader-canvas {
+      width: min(100%, 800px);
+      aspect-ratio: 16 / 9;
+      border-radius: 12px;
+      background: #0a0a0c;
+      display: block;
+    }
+
+    /* ── Controls row ── */
+    .controls {
+      display: flex;
       gap: 48px;
+      align-items: center;
     }
 
     /* ── Button shell ── */
@@ -30,14 +48,16 @@
       background: transparent;
       cursor: pointer;
       padding: 0;
-      font-size: 16px; /* anchors em units used in shadows */
+      font-size: 16px;
       outline: none;
       -webkit-tap-highlight-color: transparent;
       transform: translateY(0);
       transition: transform 0.1s ease;
+      touch-action: none;
     }
 
-    .te-btn:active {
+    .te-btn:active,
+    .te-btn.pressed {
       transform: translateY(2px);
     }
 
@@ -46,7 +66,7 @@
       outline-offset: 4px;
     }
 
-    /* ── Button face (carries all the shadow magic) ── */
+    /* ── Button face ── */
     .btn-surface {
       position: absolute;
       inset: 0;
@@ -54,35 +74,31 @@
       background: linear-gradient(145deg, hsla(12, 80%, 62%, 1), hsla(12, 80%, 46%, 1));
       pointer-events: none;
 
-      /* Raised state — 5 layers so transitions interpolate cleanly */
+      /* 7 shadow layers — matched in both states so transitions interpolate cleanly */
       box-shadow:
-        /* outer drop shadows */
          3px  3px  6px -1px rgba(0, 0, 0, 0.35),
          5px  5px 16px -4px rgba(0, 0, 0, 0.28),
-        /* top-left specular highlight */
         -2px -2px  5px -1px hsla(12, 100%, 85%, 0.55),
-        /* inner rim catch-light */
         inset  1px  1px  2px -1px hsla(12, 100%, 90%, 0.40),
-        /* inner rim shadow */
-        inset -1px -1px  2px -1px rgba(0, 0, 0, 0.15);
+        inset -1px -1px  2px -1px rgba(0, 0, 0, 0.15),
+        /* filler layers — transparent, exist only for smooth transition */
+        0px 0px 0px 0px rgba(0,0,0,0),
+        0px 0px 0px 0px rgba(0,0,0,0);
 
-      transition: box-shadow 0.15s ease;
+      transition: box-shadow 0.15s ease, background 0.15s ease;
     }
 
-    /* Pressed state — same 5 layers, values from TE reference */
-    .te-btn:active .btn-surface {
+    .te-btn:active .btn-surface,
+    .te-btn.pressed .btn-surface {
       background: linear-gradient(145deg, hsla(12, 80%, 46%, 1), hsla(12, 80%, 62%, 1));
 
       box-shadow:
-        /* replace outer drops with transparent placeholders (same count!) */
          0px  0px  0px  0px rgba(0, 0, 0, 0.00),
          0px  0px  0px  0px rgba(0, 0, 0, 0.00),
-        /* top-left goes dark on press */
          0px  0px  0px  0px hsla(12, 100%, 85%, 0.00),
-        /* TE concavity shadows */
-        inset -2px -2px 0.065em -0.05em rgba(0, 0, 0, 0.45),
+        inset -2px -2px 0.065em -0.05em  rgba(0, 0, 0, 0.45),
         inset -5px -5px  1.68em -0.375em rgba(0, 0, 0, 0.70),
-        inset  2px  2px  0.25px    -1px hsla(12, 100%, 90%, 0.12),
+        inset  2px  2px  0.25px    -1px  hsla(12, 100%, 90%, 0.12),
         inset 23px 23px  1.375em  -0.8em hsla(0, 0%, 100%, 0.20);
     }
 
@@ -97,21 +113,23 @@
       filter: url(#grain-filter);
       background: transparent;
     }
+
+    /* ── Hint text ── */
+    .hint {
+      font-family: system-ui, sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #b0a89e;
+    }
   </style>
 </head>
 <body>
 
-  <!-- grain SVG filter definition (hidden) -->
   <svg width="0" height="0" style="position:absolute">
     <defs>
       <filter id="grain-filter" x="0%" y="0%" width="100%" height="100%">
-        <feTurbulence
-          type="fractalNoise"
-          baseFrequency="0.65"
-          numOctaves="3"
-          stitchTiles="stitch"
-          result="noise"
-        />
+        <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" result="noise"/>
         <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise"/>
         <feBlend in="SourceGraphic" in2="grayNoise" mode="multiply" result="blended"/>
         <feComposite in="blended" in2="SourceGraphic" operator="in"/>
@@ -119,22 +137,312 @@
     </defs>
   </svg>
 
-  <button class="te-btn" aria-label="Button 1">
-    <span class="btn-surface"></span>
-    <span class="grain"></span>
-  </button>
+  <canvas id="shader-canvas"></canvas>
 
-  <button class="te-btn" aria-label="Button 2">
-    <span class="btn-surface"></span>
-    <span class="grain"></span>
-  </button>
+  <div class="controls">
+    <button class="te-btn" data-voice="0" aria-label="Voice 1 — Noise">
+      <span class="btn-surface"></span>
+      <span class="grain"></span>
+    </button>
+    <button class="te-btn" data-voice="1" aria-label="Voice 2 — Voronoi">
+      <span class="btn-surface"></span>
+      <span class="grain"></span>
+    </button>
+  </div>
+
+  <span class="hint">space to replay</span>
 
   <script>
-    document.querySelectorAll('.te-btn').forEach((btn, i) => {
-      btn.addEventListener('click', () => {
-        console.log(`button ${i + 1} pressed`);
+    // ─────────────────────────────────────────────
+    // 1. WebGL Setup
+    // ─────────────────────────────────────────────
+    const canvas = document.getElementById('shader-canvas');
+    const gl = canvas.getContext('webgl');
+
+    const VERT_SRC = `
+      attribute vec2 a_position;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }
+    `;
+
+    const FRAG_SRC = `
+      precision mediump float;
+
+      uniform float u_time;
+      uniform vec2  u_resolution;
+      uniform float u_voice1;
+      uniform float u_voice2;
+      uniform float u_voice1_total;
+      uniform float u_voice2_total;
+
+      /* ── Simplex noise (Ashima Arts) ── */
+      vec3 mod289v3(vec3 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
+      vec2 mod289v2(vec2 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
+      vec3 permute(vec3 x) { return mod289v3(((x*34.0)+1.0)*x); }
+
+      float snoise(vec2 v) {
+        const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                           -0.577350269189626, 0.024390243902439);
+        vec2 i  = floor(v + dot(v, C.yy));
+        vec2 x0 = v - i + dot(i, C.xx);
+        vec2 i1  = (x0.x > x0.y) ? vec2(1.0,0.0) : vec2(0.0,1.0);
+        vec4 x12 = x0.xyxy + C.xxzz;
+        x12.xy -= i1;
+        i = mod289v2(i);
+        vec3 p = permute(permute(i.y + vec3(0.0,i1.y,1.0)) + i.x + vec3(0.0,i1.x,1.0));
+        vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+        m = m*m; m = m*m;
+        vec3 x  = 2.0 * fract(p * C.www) - 1.0;
+        vec3 h  = abs(x) - 0.5;
+        vec3 ox = floor(x + 0.5);
+        vec3 a0 = x - ox;
+        m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+        vec3 g;
+        g.x  = a0.x  * x0.x   + h.x  * x0.y;
+        g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+        return 130.0 * dot(m, g);
+      }
+
+      /* fBm — step() gates unused octaves (GLSL ES 1.0 safe) */
+      float fbm(vec2 p, float octaves) {
+        float val = 0.0, amp = 0.5, freq = 1.0;
+        for (int i = 0; i < 8; i++) {
+          val += amp * snoise(p * freq) * step(float(i), octaves);
+          amp  *= 0.5;
+          freq *= 2.0;
+        }
+        return val;
+      }
+
+      /* ── Voronoi ── */
+      vec2 hash22(vec2 p) {
+        p = vec2(dot(p, vec2(127.1,311.7)), dot(p, vec2(269.5,183.3)));
+        return fract(sin(p) * 43758.5453123);
+      }
+
+      vec2 voronoi(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        float F1 = 8.0, F2 = 8.0;
+        for (int x = -1; x <= 1; x++) {
+          for (int y = -1; y <= 1; y++) {
+            vec2 nb = vec2(float(x), float(y));
+            vec2 h  = hash22(i + nb);
+            h = 0.5 + 0.5 * sin(u_time * 0.4 + 6.2831 * h);
+            float d = length(nb + h - f);
+            if (d < F1) { F2 = F1; F1 = d; }
+            else if (d < F2) { F2 = d; }
+          }
+        }
+        return vec2(F1, F2);
+      }
+
+      void main() {
+        vec2 uv = gl_FragCoord.xy / u_resolution;
+        uv.y = 1.0 - uv.y;
+
+        vec3 color = vec3(0.02, 0.02, 0.03);
+
+        /* Voice 1 — noise fBm (orange pad) */
+        float octaves  = 1.0 + u_voice1_total * 3.5;
+        vec2  noiseUV  = uv * 2.5 + vec2(u_time * 0.05, u_time * 0.03);
+        float n        = fbm(noiseUV, octaves) * 0.5 + 0.5;
+        vec3  nColor   = mix(vec3(0.55,0.10,0.02), vec3(1.0,0.6,0.3), n);
+        float nStr     = u_voice1 + u_voice1_total * 0.25;
+        color += nColor * nStr;
+
+        /* Voice 2 — voronoi (blue lead) */
+        float cellScale = 3.0 + u_voice2_total * 2.5;
+        vec2  voro      = voronoi(uv * cellScale);
+        float edge      = 1.0 - smoothstep(0.0, 0.15, voro.y - voro.x);
+        vec3  vColor    = mix(vec3(0.05,0.10,0.30), vec3(0.45,0.75,1.0), edge);
+        float vStr      = u_voice2 + u_voice2_total * 0.20;
+        color += vColor * vStr;
+
+        /* Vignette */
+        color *= 1.0 - 0.4 * dot(uv - 0.5, uv - 0.5) * 4.0;
+
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `;
+
+    function compileShader(type, src) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+        console.error('Shader error:', gl.getShaderInfoLog(s));
+      return s;
+    }
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compileShader(gl.VERTEX_SHADER, VERT_SRC));
+    gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, FRAG_SRC));
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    // Quad covering NDC
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const posLoc = gl.getAttribLocation(prog, 'a_position');
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const U = {
+      time:        gl.getUniformLocation(prog, 'u_time'),
+      resolution:  gl.getUniformLocation(prog, 'u_resolution'),
+      voice1:      gl.getUniformLocation(prog, 'u_voice1'),
+      voice2:      gl.getUniformLocation(prog, 'u_voice2'),
+      voice1Total: gl.getUniformLocation(prog, 'u_voice1_total'),
+      voice2Total: gl.getUniformLocation(prog, 'u_voice2_total'),
+    };
+
+    // ─────────────────────────────────────────────
+    // 2. State
+    // ─────────────────────────────────────────────
+    const voices = [
+      { pressed: false, pressStartTime: 0, live: 0, total: 0, target: 0 },
+      { pressed: false, pressStartTime: 0, live: 0, total: 0, target: 0 },
+    ];
+
+    const recording = {
+      events: [],
+      startTime: null,
+      isPlaying: false,
+      playbackStart: 0,
+      playHead: 0,
+    };
+
+    // ─────────────────────────────────────────────
+    // 3. Voice Engine
+    // ─────────────────────────────────────────────
+    function pressVoice(i) {
+      const v = voices[i];
+      if (v.pressed) return;
+      v.pressed = true;
+      v.pressStartTime = performance.now();
+      v.target = 1.0;
+    }
+
+    function releaseVoice(i) {
+      const v = voices[i];
+      if (!v.pressed) return;
+      v.pressed = false;
+      const duration = (performance.now() - v.pressStartTime) / 1000;
+      v.total += duration * 0.15;
+      v.target = 0.0;
+    }
+
+    function updateVoices() {
+      for (const v of voices) {
+        const attackSpeed  = 0.08;
+        const releaseSpeed = 0.03;
+        const speed = v.target > v.live ? attackSpeed : releaseSpeed;
+        v.live += (v.target - v.live) * speed;
+        if (Math.abs(v.live) < 0.001) v.live = 0;
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // 4. Recording Engine
+    // ─────────────────────────────────────────────
+    function recordEvent(type, voiceIndex) {
+      if (recording.startTime === null)
+        recording.startTime = performance.now();
+      recording.events.push({
+        type,
+        voice: voiceIndex,
+        time: performance.now() - recording.startTime,
       });
+    }
+
+    function startPlayback() {
+      if (recording.events.length === 0) return;
+      recording.isPlaying   = true;
+      recording.playbackStart = performance.now();
+      recording.playHead    = 0;
+    }
+
+    function updatePlayback() {
+      if (!recording.isPlaying) return;
+      const elapsed = performance.now() - recording.playbackStart;
+      while (
+        recording.playHead < recording.events.length &&
+        recording.events[recording.playHead].time <= elapsed
+      ) {
+        const e = recording.events[recording.playHead++];
+        if (e.type === 'noteOn')  pressVoice(e.voice);
+        if (e.type === 'noteOff') releaseVoice(e.voice);
+      }
+      if (recording.playHead >= recording.events.length)
+        recording.isPlaying = false;
+    }
+
+    // ─────────────────────────────────────────────
+    // 5. Event Handlers
+    // ─────────────────────────────────────────────
+    document.querySelectorAll('.te-btn').forEach((btn) => {
+      const i = parseInt(btn.dataset.voice, 10);
+
+      btn.addEventListener('pointerdown', (e) => {
+        btn.setPointerCapture(e.pointerId);
+        btn.classList.add('pressed');
+        pressVoice(i);
+        recordEvent('noteOn', i);
+      });
+
+      function onRelease() {
+        btn.classList.remove('pressed');
+        releaseVoice(i);
+        recordEvent('noteOff', i);
+      }
+
+      btn.addEventListener('pointerup',     onRelease);
+      btn.addEventListener('pointercancel', onRelease);
     });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault();
+        startPlayback();
+      }
+    });
+
+    // ─────────────────────────────────────────────
+    // 6. Render Loop
+    // ─────────────────────────────────────────────
+    const startTime = performance.now();
+    let lastW = 0, lastH = 0;
+
+    function render() {
+      requestAnimationFrame(render);
+
+      updateVoices();
+      updatePlayback();
+
+      // Resize canvas to match display size at device pixel ratio
+      const dpr = window.devicePixelRatio || 1;
+      const displayW = Math.round(canvas.clientWidth  * dpr);
+      const displayH = Math.round(canvas.clientHeight * dpr);
+      if (displayW !== lastW || displayH !== lastH) {
+        canvas.width  = lastW = displayW;
+        canvas.height = lastH = displayH;
+        gl.viewport(0, 0, displayW, displayH);
+      }
+
+      const t = (performance.now() - startTime) / 1000;
+      gl.uniform1f(U.time,        t);
+      gl.uniform2f(U.resolution,  canvas.width, canvas.height);
+      gl.uniform1f(U.voice1,      voices[0].live);
+      gl.uniform1f(U.voice2,      voices[1].live);
+      gl.uniform1f(U.voice1Total, voices[0].total);
+      gl.uniform1f(U.voice2Total, voices[1].total);
+
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    render();
   </script>
 
 </body>
