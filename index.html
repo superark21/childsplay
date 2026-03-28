@@ -84,7 +84,7 @@
     /* ─── Canvas area ─── */
     .canvas-area {
       grid-column: 2;
-      grid-row: 1;
+      grid-row: 1 / 3;   /* spans both rows — panel is absolute inside */
       position: relative;
       padding: 20px;
     }
@@ -169,24 +169,37 @@
       display: none;
     }
 
-    /* ─── Param panel ─── */
+    /* ─── Param panel — absolute overlay at bottom of canvas ─── */
     .param-panel {
-      grid-column: 2;
-      grid-row: 2;
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height 0.3s cubic-bezier(0.4,0,0.2,1);
+      position: absolute;
+      bottom: 28px;
+      left: 28px;
+      right: 28px;
+      z-index: 20;
+      pointer-events: none;
+      transform: translateY(calc(100% + 28px));
+      opacity: 0;
+      transition: transform 0.28s cubic-bezier(0.4,0,0.2,1),
+                  opacity   0.22s ease;
     }
-    .param-panel.open { max-height: 200px; }
+    .param-panel.open {
+      transform: translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
 
     .param-panel-inner {
-      background: #eae4de;
-      border-top: 1px solid #ddd8d2;
-      padding: 16px 24px;
+      background: rgba(234,228,222,0.97);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(200,191,182,0.5);
+      border-radius: 10px;
+      padding: 16px 20px;
       display: flex;
       align-items: flex-start;
       gap: 32px;
       flex-wrap: wrap;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08);
     }
 
     .section-title {
@@ -327,18 +340,18 @@
     </div>
   </aside>
 
-  <!-- Canvas area -->
+  <!-- Canvas area (param panel lives inside as absolute overlay) -->
   <div class="canvas-area" id="canvas-area">
     <canvas id="shader-canvas"></canvas>
     <div class="canvas-hint" id="canvas-hint">
       <span>drag effects onto canvas</span>
     </div>
-  </div>
 
-  <!-- Param panel -->
-  <div class="param-panel" id="param-panel">
-    <div class="param-panel-inner" id="panel-inner">
-      <!-- injected by JS -->
+    <!-- Param panel -->
+    <div class="param-panel" id="param-panel">
+      <div class="param-panel-inner" id="panel-inner">
+        <!-- injected by JS -->
+      </div>
     </div>
   </div>
 
@@ -595,7 +608,12 @@
         removeNode(effect);
       });
 
-      // Click chip to select
+      // Click chip to select, pointerdown to start drag
+      el.addEventListener('click', e => {
+        if (e.target.classList.contains('node-chip-remove')) return;
+        selectNode(effect);
+      });
+
       el.addEventListener('pointerdown', e => {
         if (e.target.classList.contains('node-chip-remove')) return;
         e.stopPropagation();
